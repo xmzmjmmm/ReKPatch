@@ -1,45 +1,30 @@
-#!system//bin/sh
+#!/system/bin/sh
 
 MODDIR="${0%/*}"
-
-# 自定义密钥
-key="aqmJau7K"
+key="xmzmj520"
 
 Basic_Check() {
-	# 检查是否是 root 用户
 	if [ "$(whoami)" != "root" ]; then
 		echo "请使用 Root 权限运行此脚本"
 		exit 1
 	fi
     
-	# 检查 boot 是否存在
 	if [ ! -f "boot.img" ]; then
-		echo "[x] 当前目录下未找到 boot.img, 即将尝试提取"
-		echo "[!] 警告：本操作将提取系统分区镜像，存在一定风险！"
-		echo "[!] 请务必提前自行备份当前的 boot 镜像，避免设备变砖或数据丢失。"
-		echo -n "[?] 确认已备份并愿意继续操作？输入 y 继续，其他任意键退出: "
-		read -r confirm
-		if [ "$confirm" == "y" ]; then
-			echo "[✓] 开始提取 boot 镜像"
-			extract_boot
-		else
-			echo "[x] 在当前目录下未找到 boot.img"
-			echo "[x] 脚本已退出，请认真阅读 README.md"
-			exit 1
-		fi
+		echo "[x] 当前目录下未找到 boot.img"
+		echo "[x] 脚本已退出，请将 boot.img 文件放在当前目录"
+		exit 1
 	fi
 
-	# 判断是否处于拥有可执行权限的目录下
 	if echo "$MODDIR" | grep -qE "sdcard|storage/emulated"; then
 		echo "[!] 请勿在 sdcard 以及它的子目录下执行该脚本"
-		echo "[x] 脚本已退出，请认真阅读 README.md"
+		echo "[x] 脚本已退出"
 		exit 1
 	elif [ ! -x . ]; then
 		echo "[x] 当前目录没有可执行权限，请使用其他目录"
-		echo "[x] 脚本已退出，请认真阅读 README.md"
+		echo "[x] 脚本已退出"
 		exit 1
 	else
-		echo "[✓] 当前处于拥有可执行权限目录下，继续执行..."
+		echo "[✓] 当前处于拥有可执行权限目录下"
 	fi
 
 	if test -x "$MODDIR/kpm/kptools-android"; then
@@ -50,58 +35,30 @@ Basic_Check() {
 		chmod +x "$MODDIR/kpm/kptools-android"
 		
 		if test -x "$MODDIR/kpm/kptools-android"; then
-			echo "[✓] kptools 已获得可执行权限，继续工作"
+			echo "[✓] kptools 已获得可执行权限"
 		else
 			echo "[x] kptools 获取可执行权限失败，脚本已退出"
 			exit 1
 		fi
 	fi
 
+	required_files=("kpm/kpimg-linux" "kpm/Re-Kernel.kpm" "kpm/Re-Kernel_network.kpm" "libmagiskboot.so")
+	for file in "${required_files[@]}"; do
+		if [ ! -f "$file" ]; then
+			echo "[x] 缺少必要文件: $file"
+			echo "[x] 脚本已退出"
+			exit 1
+		fi
+	done
 
 	if [[ -e "kernel" && -e "new-boot.img" ]]; then
 		echo "[?] 当前目录不干净，可能会影响嵌入效果"
-		echo "[-] 正在清理目录，以保证嵌入不会失败"
-		sh clean.sh
-		echo "[✓] 已清理完成，继续执行..."
+		echo "[-] 正在清理目录"
+		rm -f kernel ramdisk.cpio new-boot.img kpm/kernel kpm/patched_kernel 2>/dev/null
+		echo "[✓] 已清理完成"
 	fi
 }
 
-# 提取 Boot 镜像
-extract_boot() {
-	AB_check=$(getprop ro.build.ab_update)
-	Partition_location=$(getprop ro.boot.slot_suffix)
-
-	if [ "$AB_check" == "true" ]; then
-		echo "[✓] 你的手机是 AB 分区设备"
-
-		if [ "$Partition_location" == "_a" ]; then
-			echo "[-] 你目前处于 A 分区"
-			current="a"
-		elif [ "$Partition_location" == "_b" ]; then
-			echo "[-] 你目前处于 B 分区"
-			current="b"
-		else
-			echo "[x] 未知的分区后缀：$Partition_location，默认使用 _a"
-			current="a"
-		fi
-
-		echo "[-] 正在提取当前分区下的 Boot 镜像..."
-		dd if="/dev/block/bootdevice/by-name/boot_$current" of="${MODDIR}/boot.img" bs=4096 2>/dev/null
-	else
-		echo "[x] 你的手机不是 AB 分区设备，提取普通 boot 分区镜像"
-		dd if="/dev/block/bootdevice/by-name/boot" of="${MODDIR}/boot.img" bs=4096 2>/dev/null
-	fi
-
-	if [ -f "${MODDIR}/boot.img" ]; then
-		echo "[✓] 提取当前分区镜像成功"
-	else
-		echo "[x] 提取当前分区镜像失败"
-		return 1
-	fi
-}
-
-
-# 解包 boot
 boot_unpack() {
 	echo "[-] 正在解包 boot 获取 kernel"
 	./libmagiskboot.so unpack boot.img >/dev/null 2>&1
@@ -110,7 +67,6 @@ boot_unpack() {
 	cd kpm
 }
 
-# 修补 Kernel
 Kernel_patching() {
 	echo "[-] 正在对 kernel 执行修补"
 	./kptools-android -p -i kernel -k kpimg-linux -M $1.kpm -V pre-kernel-init -T kpm -s $key -o patched_kernel
@@ -121,8 +77,8 @@ Kernel_patching() {
 	else
 		echo "[x] $kpm 修补失败，脚本已退出"
 		cd ..
-		sh clean.sh
-		echo "[x] 已清理修补产生的文件，尝试重新修补"
+		rm -f kernel ramdisk.cpio kpm/kernel kpm/patched_kernel
+		echo "[x] 已清理修补产生的文件"
 		exit 1
 	fi
 
@@ -141,7 +97,7 @@ boot_repack() {
 main() {
 	Basic_Check
 	echo "---------------------------"
-	echo "[?] 请输入序号选择修补是否带网络解冻的版本"
+	echo "[?] 请输入序号选择修补版本"
 	echo "[1] ReKernel (无网络解冻)"
 	echo "[2] ReKernel_network (带网络解冻)"
 	echo "[0] 退出"
